@@ -139,6 +139,17 @@ func (d *Deque) Back() (interface{}, bool) {
 // PushFront adds value v to the the front of the deque.
 // The complexity is O(1).
 func (d *Deque) PushFront(v interface{}) {
+	if d.head != nil && d.hp > 0 {
+		// There's already room in the head slice.
+		d.hp--
+	} else {
+		d.slowPushFront(v)
+	}
+	d.len++
+	d.head.v[d.hp] = v
+}
+
+func (d *Deque) pushFrontSlow(v interface{}) {
 	switch {
 	case d.head == nil:
 		// No nodes present yet.
@@ -150,9 +161,6 @@ func (d *Deque) PushFront(v interface{}) {
 		d.tp = firstSliceSize
 		d.hp = firstSliceSize - 1
 		d.hlp = d.hp
-	case d.hp > 0:
-		// There's already room in the head slice.
-		d.hp--
 	case d.head.p != d.tail:
 		// There's at least one spare link between head and tail nodes.
 		d.head = d.head.p
@@ -186,13 +194,22 @@ func (d *Deque) PushFront(v interface{}) {
 		d.hp = maxInternalSliceSize - 1
 		d.hlp = d.hp
 	}
-	d.len++
-	d.head.v[d.hp] = v
 }
 
 // PushBack adds value v to the the back of the deque.
 // The complexity is O(1).
 func (d *Deque) PushBack(v interface{}) {
+	if d.head != nil && d.tp < len(d.tail.v) {
+		// There's room in the tail slice.
+		d.tail.v[d.tp] = v
+		d.tp++
+	} else {
+		d.pushBackSlow(v)
+	}
+	d.len++
+}
+
+func (d *Deque) pushBackSlow(v interface{}) {
 	switch {
 	case d.head == nil:
 		// No nodes present yet.
@@ -204,10 +221,6 @@ func (d *Deque) PushBack(v interface{}) {
 		d.tail.v[0] = v
 		d.hlp = firstSliceSize - 1
 		d.tp = 1
-	case d.tp < len(d.tail.v):
-		// There's room in the tail slice.
-		d.tail.v[d.tp] = v
-		d.tp++
 	case d.tp < maxFirstSliceSize:
 		// We're on the first slice and it hasn't grown large enough yet.
 		nv := make([]interface{}, len(d.tail.v)*sliceGrowthFactor)
@@ -234,7 +247,6 @@ func (d *Deque) PushBack(v interface{}) {
 		d.tail.v[0] = v
 		d.tp = 1
 	}
-	d.len++
 }
 
 // PopFront retrieves and removes the current element from the front of the deque.
@@ -242,6 +254,19 @@ func (d *Deque) PushBack(v interface{}) {
 // if the deque is empty, false will be returned.
 // The complexity is O(1).
 func (d *Deque) PopFront() (interface{}, bool) {
+	if d.len > 0 && d.hp < d.hlp {
+		v := d.head.v[d.hp]
+		d.head.v[d.hp] = nil // Avoid memory leaks
+		d.len--
+		// The head isn't at the end of the slice, so just
+		// move on one place.
+		d.hp++
+		return v, true
+	}
+	return d.popFrontSlow()
+}
+
+func (d *Deque) popFrontSlow() (interface{}, bool) {
 	if d.len == 0 {
 		return nil, false
 	}
@@ -250,10 +275,6 @@ func (d *Deque) PopFront() (interface{}, bool) {
 	*vp = nil // Avoid memory leaks
 	d.len--
 	switch {
-	case d.hp < d.hlp:
-		// The head isn't at the end of the slice, so just
-		// move on one place.
-		d.hp++
 	case d.head == d.tail:
 		// There's only a single element at the end of the slice
 		// so we can't increment hp, so change tp instead.
@@ -280,6 +301,17 @@ func (d *Deque) PopFront() (interface{}, bool) {
 // if the deque is empty, false will be returned.
 // The complexity is O(1).
 func (d *Deque) PopBack() (interface{}, bool) {
+	if d.len > 0 && d.tp > 0 {
+		d.len--
+		d.tp--
+		v := d.tail.v[d.tp]
+		d.tail.v[d.tp] = nil // Avoid memory leaks
+		return v, true
+	}
+	return d.popBackSlow()
+}
+
+func (d *Deque) popBackSlow() (interface{}, bool) {
 	if d.len == 0 {
 		return nil, false
 	}
@@ -289,8 +321,6 @@ func (d *Deque) PopBack() (interface{}, bool) {
 	v := *vp
 	*vp = nil // Avoid memory leaks
 	switch {
-	case d.tp > 0:
-		// There's space before tp.
 	case d.head == d.tail:
 		// The list is now empty, so tp==0 is appropriate.
 	case d.spareLinks >= maxSpareLinks:
